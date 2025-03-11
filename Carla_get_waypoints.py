@@ -2,8 +2,10 @@ import carla
 import carla_util
 import sys
 sys.path.append(r"D:\CaRLA_0.9.13\PythonAPI\carla") #agent 관련 API호출 위한 환경변수 설정
-from agents.navigation.global_route_planner import GlobalRoutePlanner
+from agents.navigation.global_route_planner import GlobalRoutePlanner # A*기반 경로 계획 Carla-Python API
+from agents.navigation.controller import VehiclePIDController # PID제어 Carla-Python API
 import carla_util
+import time
 
 # CARLA 서버 연결
 client = carla.Client('localhost', 2000)
@@ -51,11 +53,32 @@ while waypoint_list[-1].transform.location.distance(goal_waypoint.transform.loca
 grp = GlobalRoutePlanner(map, sampling_resolution) #두번째 인자는 웨이포인트 간격 (현재 설정 2)
 
 
-# A* 기반 경로 탐색
+# A* 기반 경로(웨이포인트) 탐색
 route = grp.trace_route(start_location, goal_location)
 
+#웨이포인트 시각화
 for waypoint, _ in route:
     world.debug.draw_string(waypoint.transform.location, 'O', draw_shadow=False,
                         color=carla.Color(r=255, g=0, b=0), life_time=120.0,
                         persistent_lines=True)
 
+################################################################
+
+# PID 컨트롤러 설정
+args_lateral = {'K_P': 1.95, 'K_D': 0.2, 'K_I': 0.07}
+args_longitudinal = {'K_P': 1.0, 'K_D': 0.1, 'K_I': 0.05}
+pid_controller = VehiclePIDController(ego_vehicle, args_lateral=args_lateral, args_longitudinal=args_longitudinal)
+
+#웨이포인트 기반 이동
+for waypoint, road_option in route:
+    target_location = waypoint.transform.location
+
+    while ego_vehicle.get_location().distance(target_location) > 2.0:
+        #현재 차량의 상태 업데이트
+        vehicle_transform = ego_vehicle.get_transform()
+
+        control = pid_controller.run_step(5.0, waypoint)  # 목표 속도 5m/s
+        vehicle.apply_control(control)
+        #시뮬레이션 틱(동기모드이면 틱으로 계속 상태 넘겨줘야함!)
+        world.tick()
+        time.sleep(0.05)
